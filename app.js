@@ -1,101 +1,97 @@
-import express from 'express';
-
-import pkg from 'whatsapp-web.js';
+import express from "express";
+import pkg from "whatsapp-web.js";
 const { Client, LocalAuth } = pkg;
-import qrcode from 'qrcode-terminal';
+import qrcode from "qrcode-terminal";
+import cors from "cors";
+import "dotenv/config";
+
+const CLIENT_ID = process.env.CLIENT_ID;
+const TOKEN = process.env.BEARER_TOKEN;
+const PORT = process.env.PORT || 3000;
+const SESSION_PATH = `./data/${CLIENT_ID}`;
+const MAIN_RECEIVER = process.env.MAIN_RECEIVER;
+
+const validateToken = (req, res, next) => {
+  if (req.headers.authorization !== `Bearer ${TOKEN}`) {
+    return res.status(403).json({ error: "Ungültiges Token" });
+  }
+  next();
+};
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
-const port = 3000;
-const token =
-	'eb5ba818d54a12fb679eb03c4316b90545a3d4c90fbc839d2c15b256a9690e8c922ed93b62a7f2642b126bee9c220ee4ff18bf0682bb489f2dec80ab4636a98eee2fb180b447ca0fb4a87739a627a52f9d3b3aadf1b5aca260eb01fdf354b04ca0a3f5adce36dbe8f96162dd63c977d8146704ec04b41cf7cf71248dc4879fca';
+app.get("/", (req, res) => {
+  res.json({ message: "WhatsApp API" });
+});
 
-const clientID = 'whatsappexpress';
-const sessionsPath = `./data/${clientID}`;
+app.get("/status", (req, res) => {
+  console.log("GET /status");
+  res.json({ status: "OK" });
+});
 
-// WHATSAPP CLIENT
+app.post("/send", validateToken, async (req, res) => {
+  try {
+    const { receiver, message } = req.body;
+    if (!receiver || !message) {
+      return res.status(400).json({ error: "Empfänger und Nachricht erforderlich" });
+    }
 
+    const number = receiver.includes("@c.us") ? receiver : `${receiver}@c.us`;
+
+    const isRegistered = await client.isRegisteredUser(number);
+    if (!isRegistered) {
+      return res.status(400).json({ error: "Empfänger nicht registriert" });
+    }
+
+    await client.sendMessage(number, message);
+    res.json({ success: true, message: "Nachricht gesendet", receiver: number });
+  } catch (error) {
+    res.json({ success: false, message: error.message });
+  }
+});
+
+// Initialisiere den WhatsApp-Client
 const client = new Client({
-	puppeteer: {
-		headless: true
-	},
-	authStrategy: new LocalAuth({
-		clientId: clientID,
-		dataPath: sessionsPath
-	})
-});
-
-client.on('qr', (qr) => {
-	// Generate and scan this code with your phone
-	qrcode.generate(qr, { small: true });
-	console.log('QR RECEIVED', qr);
-});
-
-client.on('ready', () => {
-	console.log('Client is ready!');
-});
-
-client.on('message', (msg) => {
-	console.log(msg);
+  puppeteer: { headless: true },
+  authStrategy: new LocalAuth({ clientId: CLIENT_ID, dataPath: SESSION_PATH }),
 });
 
 client.initialize();
 
-// INSTALL EXPRESS-LIMITER
+// INITIALIZE
 
-const validation = (req, res, next) => {
-	if (!req.headers.authorization) {
-		return res.status(403).json({ error: 'No credentials sent!' });
-	}
-	if (req.headers.authorization !== `Bearer ${token}`) {
-		return res.status(403).json({ error: 'Wrong credentials sent!' });
-	}
-
-	next();
-};
-
-app.use(validation);
-
-app.get('/', async (req, res) => {
-	const jsonData = req.body;
-	const shallIReallySend = jsonData.send;
-	//	const receiverToSend = '4917661144643';
-	const messageToSend = jsonData.message;
-	const receiverToSend = jsonData.receiver;
-
-	let number = receiverToSend;
-	let message = messageToSend;
-	number = number.includes('@c.us') ? number : `${number}@c.us`;
-
-	if (shallIReallySend) {
-		const registeredUser = await client.isRegisteredUser(number);
-		if (registeredUser) {
-			const success = await client.sendMessage(number, message);
-			res.json({
-				ok: true,
-				registeredUser: registeredUser,
-				success: success
-			});
-		} else {
-			res.json({
-				ok: false,
-				registeredUser: registeredUser,
-				error: 'User not registered'
-			});
-		}
-
-		return;
-	}
-
-	res.json({
-		ok: false,
-		messageToSend: message,
-		receiver: receiverToSend,
-		error: 'No Send Command Found'
-	});
+client.on("qr", (qr) => {
+  qrcode.generate(qr, { small: true });
+  console.log("QR Code erhalten. Bitte scannen!");
 });
 
-app.listen(port, () => {
-	console.log(`Example app listening at http://localhost:${port}`);
+client.on("ready", async () => {
+  console.log("READY");
+  const debugWWebVersion = await client.getWWebVersion();
+  console.log(`WWebVersion = ${debugWWebVersion}`);
+
+  client.pupPage.on("pageerror", function (err) {
+    console.log("Page error: " + err.toString());
+  });
+  client.pupPage.on("error", function (err) {
+    console.log("Page error: " + err.toString());
+  });
 });
+
+client.on("auth_failure", (msg) => {
+  console.error("AUTHENTICATION FAILURE", msg);
+});
+
+// RECEIVING MESSAGES
+client.on("message", async (msg) => {
+  const sender = msg.from;
+
+  console.log("Nachricht erhalten:", msg.body);
+  console.log("Von:", sender);
+
+  client.sendMessage(MAIN_RECEIVER, `Nachricht empfangen von ${sender}: ${msg.body}`);
+});
+
+app.listen(PORT, () => console.log(`Server läuft auf http://localhost:${PORT}`));
