@@ -57,9 +57,11 @@ app.listen(PORT, () => console.log(`SERVER LISTENING ON PORT: ${PORT}`));
 
 // --------------------------------- WHATSAPP CLIENT ----------------------------------
 const client = new Client({
-  puppeteer: { headless: true },
+  puppeteer: {
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"], // 🛠 FOR ROOT ENVIROMENT
+  },
   authStrategy: new LocalAuth({ clientId: CLIENT_ID, dataPath: SESSION_PATH }),
-  args: ["--no-sandbox", "--disable-setuid-sandbox"], // 🛠 FOR ROOT ENVIROMENT
 });
 
 client.initialize();
